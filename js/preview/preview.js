@@ -1,14 +1,14 @@
-var scene,
-  main_preview,
-  MediaPreview,
-  Sun,
-  lights,
-  outlines,
-  Transformer,
-  canvas_scenes,
-  display_scene,
-  display_area,
-  display_base;
+var scene;
+var main_preview;
+var MediaPreview;
+var Sun;
+var lights;
+var outlines;
+var Transformer;
+var canvas_scenes;
+var display_scene;
+var display_area;
+var display_base;
 var framespersecond = 0;
 var display_mode = false;
 var doRender = false;

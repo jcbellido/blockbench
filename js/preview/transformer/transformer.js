@@ -17,27 +17,27 @@ THREE.TransformControls = class extends THREE.Object3D {
 
     this.firstLocation = [0, 0, 0];
 
-    var scope = this;
-
-    var _mode = "translate";
-    var _dragging = false;
-    var _has_groups = false;
-    var _gizmo = {
+    this._mode = "translate";
+    this._dragging = false;
+    this._has_groups = false;
+    this._gizmo = {
       translate: new THREE.TransformGizmoTranslate(),
       scale: new THREE.TransformGizmoScale(),
       rotate: new THREE.TransformGizmoRotate(),
     };
 
-    for (var type in _gizmo) {
-      var gizmoObj = _gizmo[type];
+    for (var type in this._gizmo) {
+      var gizmoObj = this._gizmo[type];
 
-      gizmoObj.visible = type === _mode;
+      gizmoObj.visible = type === this._mode;
       this.add(gizmoObj);
     }
+
     this.pivot_marker = new THREE.Mesh(
       new THREE.IcosahedronGeometry(0.08),
       new THREE.MeshBasicMaterial()
     );
+
     this.pivot_marker.material.depthTest = false;
     this.pivot_marker.material.depthWrite = false;
     this.pivot_marker.material.side = THREE.FrontSide;
@@ -49,441 +49,65 @@ THREE.TransformControls = class extends THREE.Object3D {
     this.traverse((kid) => {
       kid.renderOrder = 999;
     });
-    this.children[2].children[0].children[6].renderOrder -= 9;
-    this.children[2].scale.set(0.8, 0.8, 0.8);
-
-    //Vars
-    var changeEvent = { type: "change" };
-    var mouseDownEvent = { type: "mouseDown" };
-    var mouseUpEvent = { type: "mouseUp", mode: _mode };
-    var objectChangeEvent = { type: "objectChange" };
-
-    var ray = new THREE.Raycaster();
-    var pointerVector = new THREE.Vector2();
-
-    var point = new THREE.Vector3();
-    var originalPoint = new THREE.Vector3();
-    var offset = new THREE.Vector3();
-    var scale = 1;
-    var eye = new THREE.Vector3();
-
-    var tempMatrix = new THREE.Matrix4();
-    var originalValue = null;
-    var previousValue = 0;
-
-    var worldPosition = new THREE.Vector3();
-    var worldRotation = new THREE.Euler();
-    var camPosition = new THREE.Vector3();
 
     this.attach = function (object) {
       this.elements.safePush(object);
       this.visible = true;
     };
 
-    this.detach = function () {
-      this.elements.length = 0;
-      this.visible = false;
-      this.axis = null;
-      this.hoverAxis = null;
-    };
 
-    this.setMode = function (mode) {
-      if (mode === "hidden") {
-        return;
-      }
-      _mode = mode || _mode;
-      if (_mode === "scale") scope.space = "local";
-      for (var type in _gizmo) _gizmo[type].visible = type === _mode;
-      if (mode == "translate") {
-        this.pivot_marker.visible = Toolbox.selected.visible =
-          Toolbox.selected.id == "pivot_tool";
-      }
+    this.children[2].children[0].children[6].renderOrder -= 9;
+    this.children[2].scale.set(0.8, 0.8, 0.8);
 
-      this.update();
-      scope.dispatchEvent(changeEvent);
-    };
+    this.canvas = domElement;
 
-    this.setSize = function (size) {
-      scope.size = size;
-      this.update();
-      scope.dispatchEvent(changeEvent);
-    };
-    this.setSpace = function (space) {
-      scope.space = space;
-      this.update();
-      scope.dispatchEvent(changeEvent);
-    };
-    this.getScale = function () {
-      Transformer.camera.updateMatrixWorld();
-      camPosition.setFromMatrixPosition(Transformer.camera.matrixWorld);
+    //Vars
+    this.changeEvent = { type: "change" };
+    this.mouseDownEvent = { type: "mouseDown" };
+    this.mouseUpEvent = { type: "mouseUp", mode: this._mode };
+    this.objectChangeEvent = { type: "objectChange" };
 
-      return (
-        Transformer.camera.preview.calculateControlScale(worldPosition) *
-        settings.control_size.value *
-        0.74
-      );
-    };
-    this.setScale = function (sc) {
-      Transformer.scale.set(sc, sc, sc);
-    };
-    this.update = function (object) {
-      var scope = Transformer;
+    this.ray = new THREE.Raycaster();
+    this.pointerVector = new THREE.Vector2();
 
-      if (!object) {
-        object = this.rotation_ref;
-      }
-      if (scope.elements.length == 0) {
-        this.detach();
-      }
-      this.getWorldPosition(worldPosition);
-      this.setScale(this.getScale());
+    this.point = new THREE.Vector3();
+    this.originalPoint = new THREE.Vector3();
+    this.offset = new THREE.Vector3();
+    
+    // this.scale = 1; // I'm stomping a property of THREE.Object3D
+    this._scalar_scale = 1;
+    
+    this.eye = new THREE.Vector3();
 
-      _gizmo.rotate.children[0].children[6].visible = !(
-        Format &&
-        Format.rotation_limit &&
-        Modes.edit
-      );
+    this.tempMatrix = new THREE.Matrix4();
+    this.originalValue = null;
+    this.previousValue = 0;
 
-      // Origin
-      let scale =
-        scope.camera.preview.calculateControlScale(
-          rot_origin.getWorldPosition(new THREE.Vector3())
-        ) *
-        settings.origin_size.value *
-        0.2;
-      rot_origin.scale.set(scale, scale, scale);
-      if (rot_origin.base_scale) {
-        rot_origin.scale.multiply(rot_origin.base_scale);
-      }
+    this.worldPosition = new THREE.Vector3();
+    this.worldRotation = new THREE.Euler();
+    this.camPosition = new THREE.Vector3();
 
-      // Update Eye Position
-      if (scope.camera instanceof THREE.PerspectiveCamera) {
-        eye.copy(camPosition).sub(worldPosition).normalize();
-      } else if (scope.camera instanceof THREE.OrthographicCamera) {
-        eye.copy(camPosition).normalize();
-      }
 
-      if (scope.elements.length == 0) return;
-
-      if (object) {
-        if (!this.dragging)
-          worldRotation.setFromRotationMatrix(
-            tempMatrix.extractRotation(object.matrixWorld)
-          );
-        if (Toolbox.selected.transformerMode === "rotate") {
-          _gizmo[_mode].update(worldRotation, eye);
-          this.rotation.set(0, 0, 0);
-        } else {
-          object.getWorldQuaternion(this.rotation);
-        }
-        if (
-          this.rotation_selection.x ||
-          this.rotation_selection.y ||
-          this.rotation_selection.z
-        ) {
-          let q = Reusable.quat1.setFromEuler(this.rotation_selection);
-          this.quaternion.multiply(q);
-          worldRotation.setFromQuaternion(this.quaternion);
-        }
-      } else {
-        worldRotation.set(0, 0, 0);
-        this.rotation.set(0, 0, 0);
-        _gizmo[_mode].update(worldRotation, eye);
-      }
-      _gizmo[_mode].highlight(scope.axis);
-    };
-    this.fadeInControls = function (frames) {
-      if (!frames || typeof frames !== "number") frames = 10;
-      var scope = Transformer;
-      scale = this.getScale();
-      var old_scale = Transformer.scale.x;
-      var diff = (scale - old_scale) / frames;
-
-      var i = 0;
-      var interval = setInterval(function () {
-        i++;
-        Transformer.setScale(old_scale + i * diff);
-        if (i >= frames) {
-          clearInterval(interval);
-        }
-      }, 16);
-    };
-    this.setCanvas = function (canvas) {
-      if (this.canvas) {
-        this.canvas.removeEventListener("mousedown", onPointerDown);
-        this.canvas.removeEventListener("touchstart", onPointerDown);
-
-        this.canvas.removeEventListener("mousemove", onPointerHover);
-        this.canvas.removeEventListener("touchmove", onPointerHover);
-      }
-      this.canvas = canvas;
-      this.canvas.addEventListener("mousedown", onPointerDown, false);
-      this.canvas.addEventListener("touchstart", onPointerDown, {
-        passive: true,
-      });
-
-      this.canvas.addEventListener("mousemove", onPointerHover, false);
-      this.canvas.addEventListener("touchmove", onPointerHover, {
-        passive: true,
-      });
-    };
     this.setCanvas(domElement);
     this.simulateMouseDown = function (e) {
-      onPointerDown(e);
+      this.onPointerDown(e);
     };
 
-    this.updateSelection = function () {
-      this.elements.empty();
-      if (Modes.edit || Modes.pose || Toolbox.selected.id == "pivot_tool") {
-        if (Outliner.selected.length) {
-          Outliner.selected.forEach((element) => {
-            if (
-              (element.movable &&
-                Toolbox.selected.transformerMode == "translate") ||
-              (element.resizable &&
-                Toolbox.selected.transformerMode == "scale") ||
-              (element.rotatable &&
-                Toolbox.selected.transformerMode == "rotate")
-            ) {
-              scope.attach(element);
-            }
-          });
-        } else if (Group.selected && getRotationObject() == Group.selected) {
-          scope.attach(Group.selected);
-        } else {
-          return this;
-        }
-      }
-      this.center();
-      this.update();
-      return this;
-    };
-    var display_gui_rotation = new THREE.Object3D();
-    display_gui_rotation.rotation.set(0.2, 0.2, 0);
-    display_gui_rotation.updateMatrixWorld();
+    this.display_gui_rotation = new THREE.Object3D();
+    this.display_gui_rotation.rotation.set(0.2, 0.2, 0);
+    this.display_gui_rotation.updateMatrixWorld();
 
-    this.getTransformSpace = function () {
-      var rotation_tool =
-        Toolbox.selected.id === "rotate_tool" ||
-        Toolbox.selected.id === "pivot_tool";
-      if (
-        !selected.length &&
-        (!Group.selected || !rotation_tool || !Format.bone_rig)
-      )
-        return;
-
-      let input_space =
-        Toolbox.selected == BarItems.rotate_tool
-          ? BarItems.rotation_space.get()
-          : BarItems.transform_space.get();
-
-      if (Toolbox.selected == BarItems.rotate_tool && Format.rotation_limit)
-        return 2;
-
-      if (
-        input_space == "local" &&
-        selected.length &&
-        selected[0].rotatable &&
-        (!Format.bone_rig || !Group.selected) &&
-        Toolbox.selected.id !== "pivot_tool"
-      ) {
-        let is_local = true;
-        if (Format.bone_rig) {
-          for (var el of selected) {
-            if (el.parent !== selected[0].parent) {
-              is_local = false;
-              break;
-            }
-          }
-        }
-        if (is_local) {
-          for (var el of selected) {
-            if (
-              el.rotation !== selected[0].rotation &&
-              !(
-                el.rotation instanceof Array &&
-                el.rotation.equals(selected[0].rotation)
-              )
-            ) {
-              is_local = false;
-              break;
-            }
-          }
-        }
-        if (is_local) return 2;
-      }
-      if (
-        input_space === "local" &&
-        Format.bone_rig &&
-        Group.selected &&
-        Toolbox.selected == BarItems.rotate_tool
-      ) {
-        // Local Space
-        return 2;
-      }
-      if (input_space === "normal" && Mesh.selected.length) {
-        // Local Space
-        return 3;
-      }
-      if (input_space !== "global" && Format.bone_rig) {
-        // Bone Space
-        if (
-          Format.bone_rig &&
-          Group.selected &&
-          Group.selected.matchesSelection()
-        ) {
-          if (Group.selected.parent instanceof Group) {
-            return Group.selected.parent;
-          } else {
-            return 0;
-          }
-        }
-        let bone = 0;
-        if (Outliner.selected.length) {
-          bone = Outliner.selected[0].parent;
-        } else if (Group.selected && Group.selected.parent instanceof Group) {
-          bone = Group.selected.parent;
-        }
-        for (var el of Outliner.selected) {
-          if (el.parent !== bone) {
-            bone = 0;
-            break;
-          }
-        }
-        return bone;
-      }
-      // Global Space
-      return 0;
-    };
-
-    this.center = function () {
-      delete Transformer.rotation_ref;
-      Transformer.rotation_selection.set(0, 0, 0);
-      if (Modes.edit || Modes.pose || Toolbox.selected.id == "pivot_tool") {
-        if (Transformer.visible) {
-          var rotation_tool =
-            Toolbox.selected.id === "rotate_tool" ||
-            Toolbox.selected.id === "pivot_tool";
-          var rotation_object = getRotationObject();
-          if (
-            rotation_object instanceof Array ||
-            (!rotation_object && !rotation_tool)
-          ) {
-            var arr =
-              rotation_object instanceof Array ? rotation_object : selected;
-            rotation_object = undefined;
-            for (var obj of arr) {
-              if (obj.visibility) {
-                rotation_object = obj;
-                break;
-              }
-            }
-          }
-          if (!rotation_object) {
-            this.detach();
-            return;
-          }
-          this.rotation_object = rotation_object;
-
-          //Center
-          if (
-            Toolbox.selected.id === "rotate_tool" ||
-            Toolbox.selected.id === "pivot_tool"
-          ) {
-            if (
-              rotation_object instanceof Mesh &&
-              Project.selected_vertices[rotation_object.uuid] &&
-              Project.selected_vertices[rotation_object.uuid].length > 0
-            ) {
-              this.position.copy(rotation_object.getWorldCenter());
-            } else if (rotation_object.mesh) {
-              rotation_object.mesh.getWorldPosition(this.position);
-            } else {
-              this.position.copy(rotation_object.getWorldCenter());
-            }
-            Transformer.position.sub(scene.position);
-          } else {
-            var center = getSelectionCenter();
-            Transformer.position.fromArray(center);
-          }
-
-          let space = Transformer.getTransformSpace();
-          //Rotation
-          if (space >= 2 || Toolbox.selected.id == "resize_tool") {
-            Transformer.rotation_ref = Group.selected
-              ? Group.selected.mesh
-              : selected[0] && selected[0].mesh;
-            if (Toolbox.selected.id == "rotate_tool" && Group.selected) {
-              Transformer.rotation_ref = Group.selected.mesh;
-            }
-            if (space === 3 && Mesh.selected[0]) {
-              let rotation = Mesh.selected[0].getSelectionRotation();
-              if (rotation) Transformer.rotation_selection.copy(rotation);
-            }
-          } else if (space instanceof Group) {
-            Transformer.rotation_ref = space.mesh;
-          }
-        }
-      } else if (Modes.display) {
-        display_scene.add(Transformer);
-        Transformer.attach(display_base);
-
-        display_base.getWorldPosition(Transformer.position);
-
-        if (Toolbox.selected.transformerMode === "translate") {
-          Transformer.rotation_ref = display_area;
-        } else if (Toolbox.selected.transformerMode === "scale") {
-          Transformer.rotation_ref = display_base;
-        } else if (
-          Toolbox.selected.transformerMode === "rotate" &&
-          display_slot == "gui"
-        ) {
-          Transformer.rotation_ref = display_gui_rotation;
-        }
-        Transformer.update();
-      } else if (Modes.animate && Group.selected) {
-        this.attach(Group.selected);
-        Group.selected.mesh.getWorldPosition(this.position);
-
-        if (
-          Toolbox.selected.id === "rotate_tool" &&
-          BarItems.rotation_space.value === "global"
-        ) {
-          delete Transformer.rotation_ref;
-        } else if (
-          Toolbox.selected.id === "move_tool" &&
-          BarItems.transform_space.value === "global"
-        ) {
-          delete Transformer.rotation_ref;
-        } else if (
-          Toolbox.selected.id == "resize_tool" ||
-          (Toolbox.selected.id === "rotate_tool" &&
-            BarItems.rotation_space.value !== "global")
-        ) {
-          Transformer.rotation_ref = Group.selected.mesh;
-        } else {
-          Transformer.rotation_ref = Group.selected.mesh.parent;
-        }
-      } else if (Modes.animate && NullObject.selected[0]) {
-        this.attach(NullObject.selected[0]);
-        this.position.copy(NullObject.selected[0].getWorldCenter(true));
-
-        if (BarItems.rotation_space.value === "global") {
-          delete Transformer.rotation_ref;
-        } else {
-          Transformer.rotation_ref = NullObject.selected[0].mesh.parent;
-        }
-      }
-    };
     this.cancelMovement = function (event, keep_changes = false) {
       onPointerUp(event, keep_changes);
       Undo.cancelEdit();
     };
+
     function displayDistance(number) {
       Blockbench.setStatusBarText(trimFloatNumber(number));
     }
+
     function extendTransformLine(long) {
-      let axis = scope.axis.substr(-1).toLowerCase();
+      let axis = this.axis.substr(-1).toLowerCase();
       let axisNumber = getAxisNumber(axis);
       let main_gizmo = _gizmo[_mode].children[0];
 
@@ -494,7 +118,7 @@ THREE.TransformControls = class extends THREE.Object3D {
         case "scale":
           var line =
             main_gizmo.children[
-              (axisNumber * 2 + (scope.direction ? 1 : 0)) * 2
+              (axisNumber * 2 + (this.direction ? 1 : 0)) * 2
             ];
           break;
         case "rotate":
@@ -505,43 +129,20 @@ THREE.TransformControls = class extends THREE.Object3D {
       if (Toolbox.selected.transformerMode !== "rotate") {
         line.position[axis] = long
           ? -10000
-          : scope.direction || Toolbox.selected.transformerMode !== "scale"
+          : this.direction || Toolbox.selected.transformerMode !== "scale"
           ? 0
           : -1;
       } else {
         line.base_scale[axis] = long ? 20000 : 1;
       }
-      _gizmo[_mode].highlight(scope.axis);
+      _gizmo[_mode].highlight(this.axis);
     }
 
-    function onPointerHover(event) {
-      if (
-        scope.elements.length === 0 ||
-        (event.button !== undefined && event.button !== 0)
-      )
-        return;
-
-      var pointer = event.changedTouches ? event.changedTouches[0] : event;
-      var intersect = intersectObjects(pointer, _gizmo[_mode].pickers.children);
-
-      if (_dragging === true) return;
-      scope.hoverAxis = null;
-
-      if (intersect) {
-        scope.hoverAxis = intersect.object.name;
-        event.preventDefault();
-      }
-      if (scope.axis !== scope.hoverAxis) {
-        scope.axis = scope.hoverAxis;
-        scope.update();
-        scope.dispatchEvent(changeEvent);
-      }
-    }
     function onPointerDown(event) {
       document.addEventListener("mouseup", onPointerUp, false);
 
       if (
-        scope.elements.length === 0 ||
+        this.elements.length === 0 ||
         _dragging === true ||
         (event.button !== undefined && event.button !== 0)
       )
@@ -553,7 +154,7 @@ THREE.TransformControls = class extends THREE.Object3D {
           _gizmo[_mode].pickers.children
         );
         if (intersect) {
-          scope.dragging = true;
+          this.dragging = true;
           document.addEventListener("touchend", onPointerUp, {
             passive: true,
           });
@@ -570,24 +171,24 @@ THREE.TransformControls = class extends THREE.Object3D {
           });
 
           Transformer.getWorldPosition(worldPosition);
-          //if (scope.camera.axis && (scope.hoverAxis && scope.hoverAxis.toLowerCase() === scope.camera.axis) === (_mode !== 'rotate')) return;
+          //if (this.camera.axis && (this.hoverAxis && this.hoverAxis.toLowerCase() === this.camera.axis) === (_mode !== 'rotate')) return;
           event.preventDefault();
           event.stopPropagation();
-          scope.dispatchEvent(mouseDownEvent);
+          this.dispatchEvent(mouseDownEvent);
 
-          scope.axis = intersect.object.name;
-          scope.update();
+          this.axis = intersect.object.name;
+          this.update();
           eye.copy(camPosition).sub(worldPosition).normalize();
-          _gizmo[_mode].setActivePlane(scope.axis, eye);
+          _gizmo[_mode].setActivePlane(this.axis, eye);
           var planeIntersect = intersectObjects(pointer, [
             _gizmo[_mode].activePlane,
           ]);
 
-          scope.last_valid_position.copy(scope.position);
-          scope.hasChanged = false;
+          this.last_valid_position.copy(this.position);
+          this.hasChanged = false;
 
           if (Toolbox.selected.id === "resize_tool") {
-            scope.direction = scope.axis.substr(0, 1) !== "N";
+            this.direction = this.axis.substr(0, 1) !== "N";
           }
 
           if (planeIntersect) {
@@ -600,12 +201,13 @@ THREE.TransformControls = class extends THREE.Object3D {
         }
       }
     }
+
     function beforeFirstChange(event, point) {
-      if (scope.hasChanged) return;
+      if (this.hasChanged) return;
 
       if (Modes.edit || Modes.pose || Toolbox.selected.id == "pivot_tool") {
         if (Toolbox.selected.id === "resize_tool") {
-          var axisnr = getAxisNumber(scope.axis.toLowerCase().replace("n", ""));
+          var axisnr = getAxisNumber(this.axis.toLowerCase().replace("n", ""));
           selected.forEach(function (obj) {
             if (obj instanceof Mesh) {
               obj.oldVertices = {};
@@ -643,7 +245,7 @@ THREE.TransformControls = class extends THREE.Object3D {
         if (Timeline.playing) {
           Timeline.pause();
         }
-        scope.keyframes = [];
+        this.keyframes = [];
         var animator = Animation.selected.getBoneAnimator();
         if (animator) {
           var { before, result } = animator.getOrMakeKeyframe(
@@ -652,23 +254,26 @@ THREE.TransformControls = class extends THREE.Object3D {
 
           Undo.initEdit({ keyframes: before ? [before] : [] });
           result.select();
-          scope.keyframes.push(result);
+          this.keyframes.push(result);
         }
       } else if (Modes.id === "display") {
         Undo.initEdit({ display_slots: [display_slot] });
       }
-      scope.firstChangeMade = true;
+      this.firstChangeMade = true;
     }
+
     function onPointerMove(event) {
       if (
-        scope.elements.length == 0 ||
-        scope.axis === null ||
+        this.elements.length == 0 ||
+        this.axis === null ||
         _dragging === false ||
         (event.button !== undefined && event.button !== 0)
       )
+      {
         return;
+      }
 
-      scope.orbit_controls.hasMoved = true;
+      this.orbit_controls.hasMoved = true;
       var pointer = event.changedTouches ? event.changedTouches[0] : event;
       var planeIntersect = intersectObjects(pointer, [
         _gizmo[_mode].activePlane,
@@ -678,16 +283,16 @@ THREE.TransformControls = class extends THREE.Object3D {
       event.stopPropagation();
 
       var axis = (
-        scope.direction == false && scope.axis.length == 2
-          ? scope.axis[1]
-          : scope.axis[0]
+        this.direction == false && this.axis.length == 2
+          ? this.axis[1]
+          : this.axis[0]
       ).toLowerCase();
       var axisNumber = getAxisNumber(axis);
       var rotate_normal;
       var axisB, axisNumberB;
 
-      if (scope.axis.length == 2 && scope.axis[0] !== "N") {
-        axisB = scope.axis[1].toLowerCase();
+      if (this.axis.length == 2 && this.axis[0] !== "N") {
+        axisB = this.axis[1].toLowerCase();
         axisNumberB = getAxisNumber(axisB);
       }
 
@@ -702,7 +307,7 @@ THREE.TransformControls = class extends THREE.Object3D {
         point.sub(worldPosition);
         point.removeEuler(worldRotation);
 
-        if (scope.axis == "E") {
+        if (this.axis == "E") {
           let matrix = new THREE.Matrix4()
             .copy(_gizmo[_mode].activePlane.matrix)
             .invert();
@@ -761,7 +366,7 @@ THREE.TransformControls = class extends THREE.Object3D {
               updateSelection();
             }
             previousValue = point[axis];
-            scope.hasChanged = true;
+            this.hasChanged = true;
           }
         } else if (Toolbox.selected.id === "resize_tool") {
           // Resize
@@ -796,7 +401,7 @@ THREE.TransformControls = class extends THREE.Object3D {
                   obj.resize(
                     point[axis],
                     axisNumber,
-                    !scope.direction,
+                    !this.direction,
                     null,
                     bidirectional
                   );
@@ -807,10 +412,10 @@ THREE.TransformControls = class extends THREE.Object3D {
                 }
               }
             });
-            displayDistance(point[axis] * (scope.direction ? 1 : -1));
-            scope.updateSelection();
+            displayDistance(point[axis] * (this.direction ? 1 : -1));
+            this.updateSelection();
             previousValue = point[axis];
-            scope.hasChanged = true;
+            this.hasChanged = true;
           }
         } else if (Toolbox.selected.id === "rotate_tool") {
           var snap = getRotationInterval(event);
@@ -829,10 +434,10 @@ THREE.TransformControls = class extends THREE.Object3D {
             }
             rotateOnAxis((n) => n + difference, axisNumber);
             Canvas.updatePositions(true);
-            scope.updateSelection();
+            this.updateSelection();
             displayDistance(angle - originalValue);
             previousValue = angle;
-            scope.hasChanged = true;
+            this.hasChanged = true;
           }
         } else if (Toolbox.selected.id === "pivot_tool") {
           var snap_factor = canvasGridSize(
@@ -880,10 +485,10 @@ THREE.TransformControls = class extends THREE.Object3D {
             if (Modes.animate) {
               Animator.preview();
             }
-            scope.updateSelection();
+            this.updateSelection();
 
             previousValue = point[axis];
-            scope.hasChanged = true;
+            this.hasChanged = true;
           }
         }
       } else if (Modes.animate) {
@@ -900,7 +505,7 @@ THREE.TransformControls = class extends THREE.Object3D {
             event.ctrlOrCmd || Pressing.overrides.ctrl
           );
           if (Toolbox.selected.id === "resize_tool") {
-            value *= scope.direction ? 0.1 : -0.1;
+            value *= this.direction ? 0.1 : -0.1;
             round_num *= 0.1;
           }
         }
@@ -929,10 +534,10 @@ THREE.TransformControls = class extends THREE.Object3D {
 
           if (
             Toolbox.selected.id === "rotate_tool" &&
-            (BarItems.rotation_space.value === "global" || scope.axis == "E")
+            (BarItems.rotation_space.value === "global" || this.axis == "E")
           ) {
             let normal =
-              scope.axis == "E"
+              this.axis == "E"
                 ? rotate_normal
                 : axisNumber == 0
                 ? THREE.NormalX
@@ -953,25 +558,25 @@ THREE.TransformControls = class extends THREE.Object3D {
             mesh.setRotationFromMatrix(rotWorldMatrix);
             let e = mesh.rotation;
 
-            scope.keyframes[0].offset(
+            this.keyframes[0].offset(
               "x",
               Math.trimDeg(
                 -Math.radToDeg(e.x - mesh.fix_rotation.x) -
-                  scope.keyframes[0].calc("x")
+                  this.keyframes[0].calc("x")
               )
             );
-            scope.keyframes[0].offset(
+            this.keyframes[0].offset(
               "y",
               Math.trimDeg(
                 -Math.radToDeg(e.y - mesh.fix_rotation.y) -
-                  scope.keyframes[0].calc("y")
+                  this.keyframes[0].calc("y")
               )
             );
-            scope.keyframes[0].offset(
+            this.keyframes[0].offset(
               "z",
               Math.trimDeg(
                 Math.radToDeg(e.z - mesh.fix_rotation.z) -
-                  scope.keyframes[0].calc("z")
+                  this.keyframes[0].calc("z")
               )
             );
           } else if (
@@ -990,25 +595,25 @@ THREE.TransformControls = class extends THREE.Object3D {
             mesh.rotation[axis] = Math.degToRad(obj_val);
             mesh.rotation.reorder(old_order);
 
-            scope.keyframes[0].offset(
+            this.keyframes[0].offset(
               "x",
               Math.trimDeg(
                 -Math.radToDeg(mesh.rotation.x - mesh.fix_rotation.x) -
-                  scope.keyframes[0].calc("x")
+                  this.keyframes[0].calc("x")
               )
             );
-            scope.keyframes[0].offset(
+            this.keyframes[0].offset(
               "y",
               Math.trimDeg(
                 -Math.radToDeg(mesh.rotation.y - mesh.fix_rotation.y) -
-                  scope.keyframes[0].calc("y")
+                  this.keyframes[0].calc("y")
               )
             );
-            scope.keyframes[0].offset(
+            this.keyframes[0].offset(
               "z",
               Math.trimDeg(
                 Math.radToDeg(mesh.rotation.z - mesh.fix_rotation.z) -
-                  scope.keyframes[0].calc("z")
+                  this.keyframes[0].calc("z")
               )
             );
           } else if (
@@ -1022,26 +627,26 @@ THREE.TransformControls = class extends THREE.Object3D {
             mesh.parent.getWorldQuaternion(rotation);
             offset_vec.applyQuaternion(rotation.invert());
 
-            scope.keyframes[0].offset("x", -offset_vec.x);
-            scope.keyframes[0].offset("y", offset_vec.y);
-            scope.keyframes[0].offset("z", offset_vec.z);
+            this.keyframes[0].offset("x", -offset_vec.x);
+            this.keyframes[0].offset("y", offset_vec.y);
+            this.keyframes[0].offset("z", offset_vec.z);
           } else {
             if (axis == "x" && Toolbox.selected.id === "move_tool") {
               difference *= -1;
             }
-            scope.keyframes[0].offset(axis, difference);
+            this.keyframes[0].offset(axis, difference);
           }
-          scope.keyframes[0].select();
+          this.keyframes[0].select();
 
           displayDistance(value - originalValue);
 
           Animator.preview();
           previousValue = value;
-          scope.hasChanged = true;
+          this.hasChanged = true;
         }
       } else if (Modes.display) {
         var rotation = new THREE.Quaternion();
-        scope.getWorldQuaternion(rotation);
+        this.getWorldQuaternion(rotation);
         point.applyQuaternion(rotation.invert());
 
         var channel = Toolbox.selected.animation_channel;
@@ -1060,7 +665,7 @@ THREE.TransformControls = class extends THREE.Object3D {
             limitNumber(
               bf +
                 (Math.round(value * 64) / (64 * 8)) *
-                  (scope.direction ? 1 : -1),
+                  (this.direction ? 1 : -1),
               0,
               4
             ) - bf;
@@ -1085,7 +690,7 @@ THREE.TransformControls = class extends THREE.Object3D {
 
           if (channel === "rotation") {
             let normal = Reusable.vec1.copy(
-              scope.axis == "E"
+              this.axis == "E"
                 ? rotate_normal
                 : axisNumber == 0
                 ? THREE.NormalX
@@ -1137,17 +742,18 @@ THREE.TransformControls = class extends THREE.Object3D {
           displayDistance(value - originalValue);
 
           previousValue = value;
-          scope.hasChanged = true;
+          this.hasChanged = true;
         }
       }
 
-      scope.dispatchEvent(changeEvent);
-      scope.dispatchEvent(objectChangeEvent);
+      this.dispatchEvent(this.changeEvent);
+      this.dispatchEvent(this.objectChangeEvent);
     }
+
     function onPointerUp(event, keep_changes = true) {
       //event.preventDefault(); // Prevent MouseEvent on mobile
       document.removeEventListener("mouseup", onPointerUp);
-      scope.dragging = false;
+      this.dragging = false;
 
       document.removeEventListener("mousemove", onPointerMove);
       document.removeEventListener("touchmove", onPointerMove);
@@ -1162,10 +768,10 @@ THREE.TransformControls = class extends THREE.Object3D {
       )
         return;
 
-      if (_dragging && scope.axis !== null) {
+      if (_dragging && this.axis !== null) {
         mouseUpEvent.mode = _mode;
-        scope.dispatchEvent(mouseUpEvent);
-        scope.orbit_controls.stopMovement();
+        this.dispatchEvent(mouseUpEvent);
+        this.orbit_controls.stopMovement();
         Canvas.outlines.children.length = 0;
         originalValue = null;
 
@@ -1184,10 +790,10 @@ THREE.TransformControls = class extends THREE.Object3D {
               delete obj.oldScale;
               delete obj.oldCenter;
             });
-            if (scope.hasChanged && keep_changes) {
+            if (this.hasChanged && keep_changes) {
               Undo.finishEdit("Resize");
             }
-          } else if (scope.axis !== null && scope.hasChanged && keep_changes) {
+          } else if (this.axis !== null && this.hasChanged && keep_changes) {
             if (Toolbox.selected.id == "pivot_tool") {
               Undo.finishEdit("Move pivot");
             } else if (Toolbox.selected.id == "rotate_tool") {
@@ -1199,11 +805,11 @@ THREE.TransformControls = class extends THREE.Object3D {
           updateSelection();
         } else if (
           Modes.id === "animate" &&
-          scope.keyframes &&
-          scope.keyframes.length &&
+          this.keyframes &&
+          this.keyframes.length &&
           keep_changes
         ) {
-          Undo.finishEdit("Change keyframe", { keyframes: scope.keyframes });
+          Undo.finishEdit("Change keyframe", { keyframes: this.keyframes });
         } else if (Modes.id === "display" && keep_changes) {
           Undo.finishEdit("Edit display slot");
         }
@@ -1211,7 +817,7 @@ THREE.TransformControls = class extends THREE.Object3D {
       _dragging = false;
 
       if (
-        scope.hasChanged &&
+        this.hasChanged &&
         Blockbench.startup_count <= 1 &&
         !Blockbench.hasFlag("size_modifier_message")
       ) {
@@ -1226,24 +832,478 @@ THREE.TransformControls = class extends THREE.Object3D {
 
       if ("TouchEvent" in window && event instanceof TouchEvent) {
         // Force "rollover"
-        scope.axis = null;
-        scope.update();
-        scope.dispatchEvent(changeEvent);
+        this.axis = null;
+        this.update();
+        this.dispatchEvent(changeEvent);
       } else {
-        onPointerHover(event);
+        this._onPointerHover(event);
       }
     }
-    function intersectObjects(pointer, objects) {
-      var rect = scope.canvas.getBoundingClientRect();
-      var x = (pointer.clientX - rect.left) / rect.width;
-      var y = (pointer.clientY - rect.top) / rect.height;
 
-      pointerVector.set(x * 2 - 1, -(y * 2) + 1);
-      ray.setFromCamera(pointerVector, scope.camera);
+    this._onPointerHover = onPointerHover.bind( this );
 
-      var intersections = ray.intersectObjects(objects, true);
-      return intersections[0] ? intersections[0] : false;
-    }
-    this.dispatchPointerHover = onPointerHover;
+    this.dispatchPointerHover = this._onPointerHover;
   }
+
+  intersectObjects(pointer, objects) {
+    var rect = this.canvas.getBoundingClientRect();
+    var x = (pointer.clientX - rect.left) / rect.width;
+    var y = (pointer.clientY - rect.top) / rect.height;
+
+    this.pointerVector.set(x * 2 - 1, -(y * 2) + 1);
+    this.ray.setFromCamera(this.pointerVector, this.camera);
+
+    var intersections = this.ray.intersectObjects(objects, true);
+    return intersections[0] ? intersections[0] : false;
+  }
+
+  // Seems as this method is never properly called (??)
+  // Need to dig deeper
+  setCanvas(canvas) {
+    console.log(">>> setCanvas started");
+    if (this.canvas) {
+      this.canvas.removeEventListener("mousedown", this.onPointerDown);
+      this.canvas.removeEventListener("touchstart", this.onPointerDown);
+
+      this.canvas.removeEventListener("mousemove", this._onPointerHover);
+      this.canvas.removeEventListener("touchmove", this._onPointerHover);
+    }
+    this.canvas = canvas;
+    this.canvas.addEventListener("mousedown", this.onPointerDown, false);
+    this.canvas.addEventListener("touchstart", this.onPointerDown, {
+      passive: true,
+    });
+
+    this.canvas.addEventListener("mousemove", this._onPointerHover, false);
+    this.canvas.addEventListener("touchmove", this._onPointerHover, {
+      passive: true,
+    });
+  }
+
+  attach(object) {
+    console.log(">>> Calling attach");
+    console.log(object);
+    this.elements.safePush(object);
+    this.visible = true;
+  }
+
+  detach() {
+    console.log("detach");
+    this.elements.length = 0;
+    this.visible = false;
+    this.axis = null;
+    this.hoverAxis = null;
+  }
+
+
+  setMode(mode) {
+    if (mode === "hidden") {
+      return;
+    }
+
+    this._mode = mode || this._mode;
+    if (this._mode === "scale") {
+       this.space = "local";
+    }
+
+    for (var type in this._gizmo) {
+      this._gizmo[type].visible = type === this._mode;
+    }
+
+    if (mode == "translate") {
+      this.pivot_marker.visible = Toolbox.selected.visible =
+        Toolbox.selected.id == "pivot_tool";
+    }
+
+    this.update();
+    this.dispatchEvent(this.changeEvent);
+  }
+
+  setSize(size) {
+    this.size = size;
+    this.update();
+    this.dispatchEvent(this.changeEvent);
+  };
+
+  setSpace(space) {
+    this.space = space;
+    this.update();
+    this.dispatchEvent(this.changeEvent);
+  };
+
+  getScale() {
+    this.camera.updateMatrixWorld();
+    this.camPosition.setFromMatrixPosition(this.camera.matrixWorld);
+
+    return (
+      this.camera.preview.calculateControlScale(this.worldPosition) *
+      settings.control_size.value *
+      0.74
+    );
+  };
+
+  setScale(sc) {
+    this.scale.set(sc, sc, sc);
+  };
+
+  
+  update(object) {
+    if (!object) {
+      object = this.rotation_ref;
+    }
+    if (this.elements.length == 0) {
+      this.detach();
+    }
+    this.getWorldPosition(this.worldPosition);
+    this.setScale(this.getScale());
+
+    this._gizmo.rotate.children[0].children[6].visible = !(
+      Format &&
+      Format.rotation_limit &&
+      Modes.edit
+    );
+
+    // Origin
+    let scale =
+      this.camera.preview.calculateControlScale(
+        rot_origin.getWorldPosition(new THREE.Vector3())
+      ) *
+      settings.origin_size.value *
+      0.2;
+    rot_origin.scale.set(scale, scale, scale);
+    if (rot_origin.base_scale) {
+      rot_origin.scale.multiply(rot_origin.base_scale);
+    }
+
+    // Update Eye Position
+    if (this.camera instanceof THREE.PerspectiveCamera) {
+      this.eye.copy(this.camPosition).sub(this.worldPosition).normalize();
+    } else if (this.camera instanceof THREE.OrthographicCamera) {
+      this.eye.copy(this.camPosition).normalize();
+    }
+
+    if (this.elements.length == 0) {
+      return;
+    }
+
+    if (object) {
+      if (!this.dragging)
+        this.worldRotation.setFromRotationMatrix(
+          this.tempMatrix.extractRotation(object.matrixWorld)
+        );
+      if (Toolbox.selected.transformerMode === "rotate") {
+        this._gizmo[this._mode].update(this.worldRotation, this.eye);
+        this.rotation.set(0, 0, 0);
+      } else {
+        object.getWorldQuaternion(this.rotation);
+      }
+      if (
+        this.rotation_selection.x ||
+        this.rotation_selection.y ||
+        this.rotation_selection.z
+      ) {
+        let q = Reusable.quat1.setFromEuler(this.rotation_selection);
+        this.quaternion.multiply(q);
+        this.worldRotation.setFromQuaternion(this.quaternion);
+      }
+    } else {
+      this.worldRotation.set(0, 0, 0);
+      this.rotation.set(0, 0, 0);
+      this._gizmo[this._mode].update(this.worldRotation, this.eye);
+    }
+    this._gizmo[this._mode].highlight(this.axis);
+  }
+
+
+  fadeInControls(frames) {
+    if (!frames || typeof frames !== "number") {
+      frames = 10;
+    }
+
+    scale = this.getScale();
+    var old_scale = Transformer.scale.x;
+    var diff = (scale - old_scale) / frames;
+
+    var i = 0;
+    var interval = setInterval(function () {
+      i++;
+      this.setScale(old_scale + i * diff);
+      if (i >= frames) {
+        clearInterval(interval);
+      }
+    }, 16);
+  }
+
+
+  updateSelection() {
+    this.elements.empty();
+    if (Modes.edit || Modes.pose || Toolbox.selected.id == "pivot_tool") {
+      if (Outliner.selected.length) {
+        Outliner.selected.forEach((element) => {
+          if (
+            (element.movable &&
+              Toolbox.selected.transformerMode == "translate") ||
+            (element.resizable &&
+              Toolbox.selected.transformerMode == "scale") ||
+            (element.rotatable &&
+              Toolbox.selected.transformerMode == "rotate")
+          ) {
+            this.attach(element);
+          }
+        });
+      } else if (Group.selected && getRotationObject() == Group.selected) {
+        this.attach(Group.selected);
+      } else {
+        return this;
+      }
+    }
+    this.center();
+    this.update();
+    return this;
+  }
+
+
+  getTransformSpace() {
+    var rotation_tool =
+      Toolbox.selected.id === "rotate_tool" ||
+      Toolbox.selected.id === "pivot_tool";
+    if (
+      !selected.length &&
+      (!Group.selected || !rotation_tool || !Format.bone_rig)
+    )
+      return;
+
+    let input_space =
+      Toolbox.selected == BarItems.rotate_tool
+        ? BarItems.rotation_space.get()
+        : BarItems.transform_space.get();
+
+    if (Toolbox.selected == BarItems.rotate_tool && Format.rotation_limit)
+      return 2;
+
+    if (
+      input_space == "local" &&
+      selected.length &&
+      selected[0].rotatable &&
+      (!Format.bone_rig || !Group.selected) &&
+      Toolbox.selected.id !== "pivot_tool"
+    ) {
+      let is_local = true;
+      if (Format.bone_rig) {
+        for (var el of selected) {
+          if (el.parent !== selected[0].parent) {
+            is_local = false;
+            break;
+          }
+        }
+      }
+      if (is_local) {
+        for (var el of selected) {
+          if (
+            el.rotation !== selected[0].rotation &&
+            !(
+              el.rotation instanceof Array &&
+              el.rotation.equals(selected[0].rotation)
+            )
+          ) {
+            is_local = false;
+            break;
+          }
+        }
+      }
+      if (is_local) return 2;
+    }
+    if (
+      input_space === "local" &&
+      Format.bone_rig &&
+      Group.selected &&
+      Toolbox.selected == BarItems.rotate_tool
+    ) {
+      // Local Space
+      return 2;
+    }
+    if (input_space === "normal" && Mesh.selected.length) {
+      // Local Space
+      return 3;
+    }
+    if (input_space !== "global" && Format.bone_rig) {
+      // Bone Space
+      if (
+        Format.bone_rig &&
+        Group.selected &&
+        Group.selected.matchesSelection()
+      ) {
+        if (Group.selected.parent instanceof Group) {
+          return Group.selected.parent;
+        } else {
+          return 0;
+        }
+      }
+      let bone = 0;
+      if (Outliner.selected.length) {
+        bone = Outliner.selected[0].parent;
+      } else if (Group.selected && Group.selected.parent instanceof Group) {
+        bone = Group.selected.parent;
+      }
+      for (var el of Outliner.selected) {
+        if (el.parent !== bone) {
+          bone = 0;
+          break;
+        }
+      }
+      return bone;
+    }
+    // Global Space
+    return 0;
+  }
+
+  center() {
+    delete this.rotation_ref;
+    this.rotation_selection.set(0, 0, 0);
+    if (Modes.edit || Modes.pose || Toolbox.selected.id == "pivot_tool") {
+      if (this.visible) {
+        var rotation_tool =
+          Toolbox.selected.id === "rotate_tool" ||
+          Toolbox.selected.id === "pivot_tool";
+        var rotation_object = getRotationObject();
+        if (
+          rotation_object instanceof Array ||
+          (!rotation_object && !rotation_tool)
+        ) {
+          var arr =
+            rotation_object instanceof Array ? rotation_object : selected;
+          rotation_object = undefined;
+          for (var obj of arr) {
+            if (obj.visibility) {
+              rotation_object = obj;
+              break;
+            }
+          }
+        }
+        if (!rotation_object) {
+          this.detach();
+          return;
+        }
+        this.rotation_object = rotation_object;
+
+        //Center
+        if (
+          Toolbox.selected.id === "rotate_tool" ||
+          Toolbox.selected.id === "pivot_tool"
+        ) {
+          if (
+            rotation_object instanceof Mesh &&
+            Project.selected_vertices[rotation_object.uuid] &&
+            Project.selected_vertices[rotation_object.uuid].length > 0
+          ) {
+            this.position.copy(rotation_object.getWorldCenter());
+          } else if (rotation_object.mesh) {
+            rotation_object.mesh.getWorldPosition(this.position);
+          } else {
+            this.position.copy(rotation_object.getWorldCenter());
+          }
+          this.position.sub(scene.position);
+        } else {
+          var center = getSelectionCenter();
+          this.position.fromArray(center);
+        }
+
+        let space = this.getTransformSpace();
+        //Rotation
+        if (space >= 2 || Toolbox.selected.id == "resize_tool") {
+          this.rotation_ref = Group.selected
+            ? Group.selected.mesh
+            : selected[0] && selected[0].mesh;
+          if (Toolbox.selected.id == "rotate_tool" && Group.selected) {
+            this.rotation_ref = Group.selected.mesh;
+          }
+          if (space === 3 && Mesh.selected[0]) {
+            let rotation = Mesh.selected[0].getSelectionRotation();
+            if (rotation) this.rotation_selection.copy(rotation);
+          }
+        } else if (space instanceof Group) {
+          this.rotation_ref = space.mesh;
+        }
+      }
+    } else if (Modes.display) {
+      display_scene.add(Transformer);
+      this.attach(display_base);
+
+      display_base.getWorldPosition(this.position);
+
+      if (Toolbox.selected.transformerMode === "translate") {
+        this.rotation_ref = display_area;
+      } else if (Toolbox.selected.transformerMode === "scale") {
+        this.rotation_ref = display_base;
+      } else if (
+        Toolbox.selected.transformerMode === "rotate" &&
+        display_slot == "gui"
+      ) {
+        this.rotation_ref = this.display_gui_rotation;
+      }
+      this.update();
+    } else if (Modes.animate && Group.selected) {
+      this.attach(Group.selected);
+      Group.selected.mesh.getWorldPosition(this.position);
+
+      if (
+        Toolbox.selected.id === "rotate_tool" &&
+        BarItems.rotation_space.value === "global"
+      ) {
+        delete this.rotation_ref;
+      } else if (
+        Toolbox.selected.id === "move_tool" &&
+        BarItems.transform_space.value === "global"
+      ) {
+        delete this.rotation_ref;
+      } else if (
+        Toolbox.selected.id == "resize_tool" ||
+        (Toolbox.selected.id === "rotate_tool" &&
+          BarItems.rotation_space.value !== "global")
+      ) {
+        this.rotation_ref = Group.selected.mesh;
+      } else {
+        this.rotation_ref = Group.selected.mesh.parent;
+      }
+    } else if (Modes.animate && NullObject.selected[0]) {
+      this.attach(NullObject.selected[0]);
+      this.position.copy(NullObject.selected[0].getWorldCenter(true));
+
+      if (BarItems.rotation_space.value === "global") {
+        delete this.rotation_ref;
+      } else {
+        this.rotation_ref = NullObject.selected[0].mesh.parent;
+      }
+    }
+  }
+
 };
+
+function onPointerHover(event) {
+  if (
+    this.elements.length === 0 ||
+    (event.button !== undefined && event.button !== 0)
+  )
+    return;
+
+  var pointer = event.changedTouches ? event.changedTouches[0] : event;
+  var intersect = this.intersectObjects(pointer, this._gizmo[this._mode].pickers.children);
+
+  if (this._dragging === true) {
+      return;
+  }
+  
+  this.hoverAxis = null;
+
+  if (intersect) {
+    this.hoverAxis = intersect.object.name;
+    event.preventDefault();
+  }
+
+  if (this.axis !== this.hoverAxis) {
+    this.axis = this.hoverAxis;
+    this.update();
+    this.dispatchEvent(this.changeEvent);
+  }
+}
+
