@@ -89,7 +89,7 @@ THREE.TransformControls = class extends THREE.Object3D {
 
     this.setCanvas(domElement);
     this.simulateMouseDown = function (e) {
-      this.onPointerDown(e);
+      this._onPointerDown(e);
     };
 
     this.display_gui_rotation = new THREE.Object3D();
@@ -243,12 +243,14 @@ THREE.TransformControls = class extends THREE.Object3D {
         this.worldRotation.setFromRotationMatrix(
           this.tempMatrix.extractRotation(object.matrixWorld)
         );
+      
       if (Toolbox.selected.transformerMode === "rotate") {
         this._gizmo[this._mode].update(this.worldRotation, this.eye);
         this.rotation.set(0, 0, 0);
       } else {
         object.getWorldQuaternion(this.rotation);
       }
+
       if (
         this.rotation_selection.x ||
         this.rotation_selection.y ||
@@ -258,11 +260,14 @@ THREE.TransformControls = class extends THREE.Object3D {
         this.quaternion.multiply(q);
         this.worldRotation.setFromQuaternion(this.quaternion);
       }
-    } else {
+    }
+    else 
+    {
       this.worldRotation.set(0, 0, 0);
       this.rotation.set(0, 0, 0);
       this._gizmo[this._mode].update(this.worldRotation, this.eye);
     }
+
     this._gizmo[this._mode].highlight(this.axis);
   }
 
@@ -669,8 +674,10 @@ function onPointerDown(event) {
     this.elements.length === 0 ||
     this._dragging === true ||
     (event.button !== undefined && event.button !== 0)
-  )
+  ) {
     return;
+  }
+    
   var pointer = event.changedTouches ? event.changedTouches[0] : event;
   if (pointer.button === 0 || pointer.button === undefined) {
     var intersect = this.intersectObjects(
@@ -678,20 +685,14 @@ function onPointerDown(event) {
       this._gizmo[this._mode].pickers.children
     );
 
-    if (intersect) {
+    if (intersect)
+    {
       this._dragging = true;
-      document.addEventListener("touchend", this._onPointerUp, {
-        passive: true,
-      });
-      document.addEventListener("touchcancel", this._onPointerUp, {
-        passive: true,
-      });
-      document.addEventListener("touchleave", this._onPointerUp, {
-        passive: true,
-      });
-
-      document.addEventListener("mousemove", this._onPointerMove, false);
-      document.addEventListener("touchmove", this._onPointerMove, { passive: true, });
+      document.addEventListener("touchend",     this._onPointerUp, { passive: true, });
+      document.addEventListener("touchcancel",  this._onPointerUp, { passive: true, });
+      document.addEventListener("touchleave",   this._onPointerUp, { passive: true, });
+      document.addEventListener("mousemove",    this._onPointerMove, true);
+      document.addEventListener("touchmove",    this._onPointerMove, { passive: true, });
 
       this.getWorldPosition(this.worldPosition);
       //if (this.camera.axis && (this.hoverAxis && this.hoverAxis.toLowerCase() === this.camera.axis) === (_mode !== 'rotate')) return;
@@ -727,7 +728,7 @@ function onPointerDown(event) {
 
 function onPointerUp(event, keep_changes = true) {
   document.removeEventListener("mouseup", this._onPointerUp);
-  // this._dragging = false; // --> DAFUK ???
+  // this._dragging = false; // --> commented out by meself ... also ... DAFUK ???
 
   document.removeEventListener("mousemove", this._onPointerMove);
   document.removeEventListener("touchmove", this._onPointerMove);
@@ -744,7 +745,8 @@ function onPointerUp(event, keep_changes = true) {
     return;
   }
 
-  if (this._dragging && this.axis !== null) {
+  if (this._dragging && this.axis !== null)
+  {
     this.mouseUpEvent.mode = this._mode;
     this.dispatchEvent(this.mouseUpEvent);
     this.orbit_controls.stopMovement();
