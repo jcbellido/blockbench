@@ -1,7 +1,8 @@
 THREE.TransformGizmoTranslate = class extends THREE.TransformGizmo {
   constructor() {
     super();
-    var arrowGeometry = new THREE.CylinderGeometry(0, 0.07, 0.2, 12, 1, false);
+
+    let arrowGeometry = new THREE.CylinderGeometry(0, 0.07, 0.2, 12, 1, false);
 
     let pickerCylinderGeo = new THREE.CylinderBufferGeometry(
       0.2,
@@ -100,34 +101,33 @@ THREE.TransformGizmoTranslate = class extends THREE.TransformGizmo {
         ],
       ],
     };
-
-    this.setActivePlane = function (axis, eye) {
-      var tempMatrix = new THREE.Matrix4();
-      eye.applyMatrix4(
-        tempMatrix
-          .copy(tempMatrix.extractRotation(this.planes["XY"].matrixWorld))
-          .invert()
-      );
-
-      if (axis === "X") {
-        this.activePlane = this.planes["XY"];
-        if (Math.abs(eye.y) > Math.abs(eye.z))
-          this.activePlane = this.planes["XZ"];
-      }
-
-      if (axis === "Y") {
-        this.activePlane = this.planes["XY"];
-        if (Math.abs(eye.x) > Math.abs(eye.z))
-          this.activePlane = this.planes["YZ"];
-      }
-
-      if (axis === "Z") {
-        this.activePlane = this.planes["XZ"];
-        if (Math.abs(eye.x) > Math.abs(eye.y))
-          this.activePlane = this.planes["YZ"];
-      }
-    };
-
     this.init();
   }
-};
+  
+  setActivePlane(axis, eye) {
+    var tempMatrix = new THREE.Matrix4();
+    eye.applyMatrix4(
+      tempMatrix
+        .copy(tempMatrix.extractRotation(this.planes["XY"].matrixWorld))
+        .invert()
+    );
+
+    if (axis === "X") {
+      this.activePlane = this.planes["XY"];
+      if (Math.abs(eye.y) > Math.abs(eye.z))
+        this.activePlane = this.planes["XZ"];
+    }
+
+    if (axis === "Y") {
+      this.activePlane = this.planes["XY"];
+      if (Math.abs(eye.x) > Math.abs(eye.z))
+        this.activePlane = this.planes["YZ"];
+    }
+
+    if (axis === "Z") {
+      this.activePlane = this.planes["XZ"];
+      if (Math.abs(eye.x) > Math.abs(eye.y))
+        this.activePlane = this.planes["YZ"];
+    }
+  }
+}

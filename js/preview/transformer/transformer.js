@@ -818,7 +818,6 @@ function onPointerUp(event, keep_changes = true) {
   }
 }
 
-
 function onPointerMove(event) {
   if (
     this.elements.length == 0 ||
@@ -981,7 +980,7 @@ function onPointerMove(event) {
                 obj.resize(value, axisNumberB, false, null, bidirectional);
               }
             }
-          }
+          }.bind(this)
         );
         this.displayDistance(this.point[axis] * (this.direction ? 1 : -1));
         this.updateSelection();
@@ -1220,7 +1219,7 @@ function onPointerMove(event) {
       }
       this.keyframes[0].select();
 
-      this.displayDistance(value - originalValue);
+      this.displayDistance(value - this.originalValue);
 
       Animator.preview();
       this.previousValue = value;
