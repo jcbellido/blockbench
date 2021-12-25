@@ -1018,10 +1018,10 @@ function onPointerMove(event) {
         event.shiftKey || Pressing.overrides.shift,
         event.ctrlOrCmd || Pressing.overrides.ctrl
       );
-      point[axis] = Math.round(point[axis] / snap_factor) * snap_factor;
+      this.point[axis] = Math.round(this.point[axis] / snap_factor) * snap_factor;
 
       if (this.originalValue === null) {
-        this.originalValue = point[axis];
+        this.originalValue = this.point[axis];
       }
       if (this.previousValue === undefined)
       {
