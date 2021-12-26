@@ -317,7 +317,6 @@ THREE.TransformControls = class extends THREE.Object3D {
     return this;
   }
 
-
   getTransformSpace() {
     var rotation_tool =
       Toolbox.selected.id === "rotate_tool" ||
@@ -634,6 +633,219 @@ THREE.TransformControls = class extends THREE.Object3D {
     onPointerUp(event, keep_changes);
     Undo.cancelEdit();
   }
+
+  rotate_on_pointer_move(event) {
+    this.orbit_controls.hasMoved = true;
+    let pointer = event.changedTouches ? event.changedTouches[0] : event;
+    let planeIntersect = this.intersectObjects(pointer, [ this._gizmo[this._mode].activePlane, ] );
+    if (!planeIntersect) {
+      return;
+    }
+
+    event.stopPropagation();
+
+    let axis = (
+      this.direction == false && this.axis.length == 2
+        ? this.axis[1]
+        : this.axis[0]
+    ).toLowerCase();
+    let axisNumber = getAxisNumber(axis);
+    let rotate_normal;
+    let axisB, axisNumberB;
+  
+    if (this.axis.length == 2 && this.axis[0] !== "N") {
+      axisB = this.axis[1].toLowerCase();
+      axisNumberB = getAxisNumber(axisB);
+    }
+  
+    this.point.copy(planeIntersect.point);
+
+    this.point.sub(this.worldPosition);
+    this.point.removeEuler(this.worldRotation);
+
+    let angle = 0.0;
+
+    if (this.axis == "E") {
+      let matrix = new THREE.Matrix4()
+        .copy(this._gizmo[this._mode].activePlane.matrix)
+        .invert();
+      this.point.applyMatrix4(matrix);
+      angle = Math.radToDeg(Math.atan2(this.point.y, this.point.x));
+      rotate_normal = Preview.selected.camera
+        .getWorldDirection(new THREE.Vector3())
+        .multiplyScalar(-1);
+    } else {
+      let rotations = [
+        Math.atan2(this.point.z, this.point.y),
+        Math.atan2(this.point.x, this.point.z),
+        Math.atan2(this.point.y, this.point.x),
+      ];
+      angle = Math.radToDeg(rotations[axisNumber]);
+    }
+
+    if (Modes.edit || Modes.pose || Toolbox.selected.id == "pivot_tool") 
+    {
+      let snap = getRotationInterval(event);
+      angle = Math.round(angle / snap) * snap;
+      if (Math.abs(angle) > 300) angle = angle > 0 ? -snap : snap;
+      if (this.previousValue === undefined) {
+        this.previousValue = angle;
+      }
+      if (this.originalValue === null) {
+        this.originalValue = angle;
+      }
+
+      if (this.previousValue !== angle) {
+        this.beforeFirstChange(event);
+
+        let difference = angle - this.previousValue;
+        if (axisNumber == undefined) {
+          axisNumber = rotate_normal;
+        }
+        rotateOnAxis((n) => n + difference, axisNumber);
+        Canvas.updatePositions(true);
+        this.updateSelection();
+        this.displayDistance(angle - this.originalValue);
+        this.previousValue = angle;
+        this.hasChanged = true;
+      }
+    }
+    else if (Modes.animate)
+    {
+      if (!Animation.selected) {
+        Blockbench.showQuickMessage("message.no_animation_selected");
+      }
+      let value = Math.trimDeg(axisNumber === 2 ? angle : -angle);
+      let round_num = getRotationInterval(event);
+
+      value = Math.round(value / round_num) * round_num;
+      if (this.previousValue === undefined) {
+        this.previousValue = value;
+      }
+
+      if (this.originalValue === null) {
+        this.originalValue = value;
+      }
+  
+      if (
+        value !== this.previousValue &&
+        Animation.selected &&
+        Animation.selected.getBoneAnimator()
+      ) {
+        this.beforeFirstChange(event, planeIntersect.point);
+
+        let difference = value - (this.previousValue || 0);
+        if ( Math.abs(difference) > 120 ) {
+          difference = 0;
+        }
+
+        let { mesh } = Group.selected || NullObject.selected[0];
+
+        if ( BarItems.rotation_space.value === "global" || this.axis == "E")
+        {
+          let normal =
+            this.axis == "E"
+              ? rotate_normal
+              : axisNumber == 0
+              ? THREE.NormalX
+              : axisNumber == 1
+              ? THREE.NormalY
+              : THREE.NormalZ;
+          if (axisNumber != 2)
+          {
+            difference *= -1;
+          }
+          let rotWorldMatrix = new THREE.Matrix4();
+          rotWorldMatrix.makeRotationAxis(normal, Math.degToRad(difference));
+          rotWorldMatrix.multiply(mesh.matrixWorld);
+  
+          let inverse = new THREE.Matrix4()
+            .copy(mesh.parent.matrixWorld)
+            .invert();
+          rotWorldMatrix.premultiply(inverse);
+  
+          mesh.matrix.copy(rotWorldMatrix);
+          mesh.setRotationFromMatrix(rotWorldMatrix);
+          let e = mesh.rotation;
+  
+          this.keyframes[0].offset(
+            "x",
+            Math.trimDeg(
+              -Math.radToDeg(e.x - mesh.fix_rotation.x) -
+                this.keyframes[0].calc("x")
+            )
+          );
+          this.keyframes[0].offset(
+            "y",
+            Math.trimDeg(
+              -Math.radToDeg(e.y - mesh.fix_rotation.y) -
+                this.keyframes[0].calc("y")
+            )
+          );
+          this.keyframes[0].offset(
+            "z",
+            Math.trimDeg(
+              Math.radToDeg(e.z - mesh.fix_rotation.z) -
+                this.keyframes[0].calc("z")
+            )
+          );
+        }
+        else if ( this.getTransformSpace() == 2 )
+        {
+          if (axisNumber != 2) difference *= -1;
+  
+          let old_order = mesh.rotation.order;
+          mesh.rotation.reorder(
+            axisNumber == 0 ? "ZYX" : axisNumber == 1 ? "ZXY" : "XYZ"
+          );
+          var obj_val = Math.trimDeg(
+            Math.radToDeg(mesh.rotation[axis]) + difference
+          );
+          mesh.rotation[axis] = Math.degToRad(obj_val);
+          mesh.rotation.reorder(old_order);
+  
+          this.keyframes[0].offset(
+            "x",
+            Math.trimDeg(
+              -Math.radToDeg(mesh.rotation.x - mesh.fix_rotation.x) -
+                this.keyframes[0].calc("x")
+            )
+          );
+          this.keyframes[0].offset(
+            "y",
+            Math.trimDeg(
+              -Math.radToDeg(mesh.rotation.y - mesh.fix_rotation.y) -
+                this.keyframes[0].calc("y")
+            )
+          );
+          this.keyframes[0].offset(
+            "z",
+            Math.trimDeg(
+              Math.radToDeg(mesh.rotation.z - mesh.fix_rotation.z) -
+                this.keyframes[0].calc("z")
+            )
+          );
+        } else {
+          this.keyframes[0].offset(axis, difference);
+        }
+
+        this.keyframes[0].select();
+
+        this.displayDistance(value - this.originalValue);
+        Animator.preview();
+
+        this.previousValue = value;
+        this.hasChanged = true;
+      }
+    }
+    else if (Modes.display)
+    {
+      throw new Error("Animation display `unrefactored`");
+    }
+    // For, finally
+    this.dispatchEvent(this.changeEvent);
+    this.dispatchEvent(this.objectChangeEvent);
+  }
 }; // end class definition
 
 
@@ -828,6 +1040,11 @@ function onPointerMove(event) {
   {
     return;
   }
+  
+  if (Toolbox.selected.transformerMode === "rotate") {
+    this.rotate_on_pointer_move(event);
+    return;
+  }
 
   this.orbit_controls.hasMoved = true;
   var pointer = event.changedTouches ? event.changedTouches[0] : event;
@@ -987,32 +1204,7 @@ function onPointerMove(event) {
         this.previousValue = this.point[axis];
         this.hasChanged = true;
       }
-    } else if (Toolbox.selected.id === "rotate_tool")
-    {
-      var snap = getRotationInterval(event);
-      angle = Math.round(angle / snap) * snap;
-      if (Math.abs(angle) > 300) angle = angle > 0 ? -snap : snap;
-      if (this.previousValue === undefined) {
-        this.previousValue = angle;
-      }
-      if (this.originalValue === null) {
-        this.originalValue = angle;
-      }
 
-      if (this.previousValue !== angle) {
-        this.beforeFirstChange(event);
-
-        var difference = angle - this.previousValue;
-        if (axisNumber == undefined) {
-          axisNumber = rotate_normal;
-        }
-        rotateOnAxis((n) => n + difference, axisNumber);
-        Canvas.updatePositions(true);
-        this.updateSelection();
-        this.displayDistance(angle - this.originalValue);
-        this.previousValue = angle;
-        this.hasChanged = true;
-      }
     } else if (Toolbox.selected.id === "pivot_tool") {
       var snap_factor = canvasGridSize(
         event.shiftKey || Pressing.overrides.shift,
@@ -1073,6 +1265,7 @@ function onPointerMove(event) {
     if (!Animation.selected) {
       Blockbench.showQuickMessage("message.no_animation_selected");
     }
+    
     if (Toolbox.selected.id === "rotate_tool") {
       value = Math.trimDeg(axisNumber === 2 ? angle : -angle);
       var round_num = getRotationInterval(event);
@@ -1087,6 +1280,7 @@ function onPointerMove(event) {
         round_num *= 0.1;
       }
     }
+
     value = Math.round(value / round_num) * round_num;
     if (this.previousValue === undefined) {
       this.previousValue = value;
